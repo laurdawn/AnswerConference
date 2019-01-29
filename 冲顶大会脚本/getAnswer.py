@@ -1,6 +1,6 @@
 #coding=utf8
 import requests
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
 # # 颜色兼容Win 10
 from colorama import init,Fore
 init()
@@ -29,7 +29,7 @@ def analyze(question,choices):
     #词频计数
     rateCnt = list(executor.map(count_base, choices))
     pmiRank = CalculatePMIRank(problemCnt, answerCnt, problemAndAnswerCnt)
-    cntRank = CalculateCountRank(question, rateCnt, pmiRank, problemData)
+    cntRank = CalculateCountRank(question, rateCnt, pmiRank)
     sumRank = {}
     for i in range(len(choices)):
         sumRank[choices[i]] = 0
@@ -103,29 +103,17 @@ def analyze(question,choices):
 def CalculatePMIRank(problemCnt, answerCnt, problemAndAnswerCnt):
     pmiRank = []
     for i in range(len(answerCnt)):
-        '''
-        if answerCnt[i] == 0:
-            anCnt = 1
-        else:
-            anCnt = answerCnt[i]
-        '''
         pmiRank.append(int(problemAndAnswerCnt[i]) * int(problemAndAnswerCnt[i]) / int(problemCnt) / int(answerCnt[i]))
     return pmiRank
 
-def CalculateCountRank(question, rateCnt, pmiRank, problemData):
-    if problemData == None:
-        open_baidu_count(question, 0)
-    pmiSum = 0
-    for i in pmiRank:
-        pmiSum += i
-    sum = 0
-    for i in rateCnt:
-        sum += i
+def CalculateCountRank(question, rateCnt, pmiRank):
+    pmiSum = sum(pmiRank)
+    sumCnt = sum(rateCnt)
     countRank = []
-    if sum == 0:
-        sum = 1
+    if sumCnt == 0:
+        sumCnt = 1
     for i in range(len(rateCnt)):
-        countRank.append(pmiSum * (rateCnt[i] / sum))
+        countRank.append(pmiSum * (rateCnt[i] / sumCnt))
     return countRank
 
 def removeUnuseInfo(question):
@@ -147,6 +135,23 @@ def open_baidu_count(str, type = 1):
     index = content.find('百度为您找到相关结果约') + 11
     content = content[index:]
     index = content.find('个')
+    #返回百度计数
+    count =  content[:index].replace(',', '')
+    if count == "0":
+        count = '1'
+    if type == 0:
+        problemData = content
+        problemCnt = count
+        return
+    return count
+
+def open_google_count(str, type = 1):
+    global problemData, problemCnt
+    req = requests.get(url='https://www.google.com.tr/search', params={'q': str})
+    content = req.text
+    index = content.find('搜狗已为您找到约') + len('搜狗已为您找到约')
+    content = content[index:]
+    index = content.find('条')
     #返回百度计数
     count =  content[:index].replace(',', '')
     if count == "0":
@@ -180,7 +185,7 @@ def SearchTureAnswer(data, answerArr):
                                 existCnt += 1
                                 index = i
                         if existCnt == 1 :
-                            print("匹配到:百度计算器")
+                            print("匹配到百度计算器:{}".format(answerArr[index]))
                             return index
     #百度汉语
     p = data.find("<div class=\"op_exactqa_detail_s_answer\">")
@@ -204,7 +209,7 @@ def SearchTureAnswer(data, answerArr):
                             existCnt += 1
                             index = i
                     if existCnt == 1 :
-                        print("匹配到:百度汉语")
+                        print("匹配到百度汉语:{}".format(answerArr[index]))
                         return index
     #百度知识图谱
     p = data.find("data-compress=\"off\">")
@@ -229,7 +234,7 @@ def SearchTureAnswer(data, answerArr):
                                 existCnt += 1
                                 index = i
                         if existCnt == 1 :
-                            print("匹配到:百度汉语")
+                            print("匹配到百度汉语:{}".format(answerArr[index]))
                             return index
     #百度百科
     p = data.find("mu=\"https://baike.baidu.com/item/")
@@ -252,7 +257,7 @@ def SearchTureAnswer(data, answerArr):
                         existCnt += 1
                         index = i
                 if existCnt == 1 :
-                    print("匹配到:百度百科")
+                    print("匹配到百度百科:{}".format(answerArr[index]))
                     return index
     #百度知道最佳答案
     p = data.find("<div class=\"op_best_answer_content\">")
@@ -275,7 +280,7 @@ def SearchTureAnswer(data, answerArr):
                             existCnt += 1
                             index = i
                     if existCnt == 1 :
-                        print("匹配到:百度知道最佳答案")
+                        print("匹配到百度知道最佳答案:{}".format(answerArr[index]))
                         return index
     return -1
 
@@ -285,27 +290,25 @@ def SearchInBaiduZhiDao(data, answerArr):
     endStr = "https://zhidao.baidu.com/que"
     startP = data.find(startStr)
     if startP != -1 :
-        for i in range(3):
             endP = data.find("https://zhidao.baidu.com/que", startP)
             if endP != -1:
                 beforeIt = CountItemsBeforeP(data, startP)
-                if beforeIt >= 3:
-                    break
-                ans = data[startP + len(startStr):endP]
-                existCnt = 0
-                ind = 0
-                for j in range(len(answerArr)):
-                    if answerArr[j] in ans:
-                        existCnt += 1
-                        ind = j
-                if existCnt == 1:
-                    print("匹配到:百度知道概率")
-                    baiDuZhiDaoAnswerIndex = ind
-                    zdRatio = 70 - 15 * (beforeIt - 1)
-                    return True
-        baiDuZhiDaoAnswerIndex = -1
-        zdRatio = 0
-        return False
+                if beforeIt < 3:
+                    ans = data[startP + len(startStr):endP]
+                    existCnt = 0
+                    ind = 0
+                    for j in range(len(answerArr)):
+                        if answerArr[j] in ans:
+                            existCnt += 1
+                            ind = j
+                    if existCnt == 1:
+                        print("匹配到百度知道概率:{}".format(answerArr[ind]))
+                        baiDuZhiDaoAnswerIndex = ind
+                        zdRatio = 70 - 15 * (beforeIt - 1)
+                        return True
+    baiDuZhiDaoAnswerIndex = -1
+    zdRatio = 0
+    return False
 
 def CountItemsBeforeP(problemData, p):
     cnt = 0
@@ -316,5 +319,5 @@ def CountItemsBeforeP(problemData, p):
     return cnt
 
 if __name__ == '__main__':
-    count = analyze('铁观音属于哪种茶类？', ['青茶类', '花菜', '绿茶', '红茶'])
+    count = analyze('金坷垃三人组不包括？', ['非洲人', '欧洲人', '美国人', '日本人'])
     print("答案：", count)
